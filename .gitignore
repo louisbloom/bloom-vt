@@ -1,0 +1,72 @@
+# --- Autotools generated ---
+/aclocal.m4
+/autom4te.cache/
+/build-aux/compile
+/build-aux/depcomp
+/build-aux/install-sh
+/build-aux/missing
+/build-aux/ar-lib
+/build-aux/test-driver
+/configure
+/configure~
+/config.h
+/config.h.in
+/config.h.in~
+/config.log
+/config.status
+/stamp-h1
+Makefile
+Makefile.in
+
+# --- libtool macros (only present if LT_INIT is added; harmless to pre-list) ---
+/m4/libtool.m4
+/m4/lt*.m4
+
+# --- Project-generated ---
+/version
+/bloom-vt.pc
+/tests/test_bvt_parser
+/tests/test_bvt_keys
+/tests/test_bvt_pty
+
+# --- Build artifacts ---
+*.o
+*.a
+*.la
+*.lo
+.libs/
+.deps/
+.dirstamp
+/build/
+/_build/
+
+# --- Test outputs ---
+*.log
+*.trs
+/tests/test-suite.log
+
+# --- clangd / bear ---
+/compile_commands.json
+/.cache/
+/.clangd
+
+# --- Editors / OS ---
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+
+# --- AI tooling cruft ---
+.claude/
+CLAUDE.md
+AGENTS.md
+crush.json
+.crushignore
+.aider*
+.cecli*
+
+# --- Misc ---
+*.tmp
+*.bak
+.env
