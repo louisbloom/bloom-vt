@@ -6,7 +6,8 @@
  *
  * Thread-safety: a BvtTerm is not internally synchronized; callers
  * own all synchronization. Allocation: bounded; the input-write hot
- * path is zero-allocation in steady state. See plan for details.
+ * path is zero-allocation in steady state. See "Memory model" in
+ * README.md for details.
  */
 
 #ifndef BLOOM_VT_H

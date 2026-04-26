@@ -28,6 +28,42 @@ where it replaces libvterm.
 For the project status — what is byte-identical to libvterm, accepted
 divergences, and the deferred items — see [`FOLLOWUPS.md`](FOLLOWUPS.md).
 
+## Memory model
+
+Bounded allocation and a zero-allocation steady-state hot path are explicit
+design goals. Concretely:
+
+- **Pluggable allocator.** All heap traffic goes through a `BvtAllocator`
+  (malloc/realloc/free function pointers) supplied at `bvt_new()` time.
+  Callers can route everything to an arena, a pool, or a tracked allocator
+  without patching the library. Pass `NULL` to use libc.
+- **Paged grids.** Each `BvtPage` owns a contiguous cell buffer plus a
+  per-row flag byte. A terminal has at most two pages live at once (the
+  primary grid and, while in altscreen, the alternate). Page allocation
+  happens on `bvt_new`, on resize, and on altscreen entry — never from
+  `bvt_input_write`.
+- **Paged scrollback.** A doubly linked ring of pages, 64 rows per page,
+  default 1000 lines total. Allocations happen only when a page fills; the
+  ring evicts the oldest page when capacity is reached, so scrollback
+  memory is bounded by the configured line count regardless of input.
+- **Per-page interning.** A style intern table keyed by SGR pen and a
+  grapheme arena keyed by codepoint sequence both live on the page.
+  Cells store a 32-bit `style_id` and 32-bit `grapheme_id`, so repeated
+  styles and clusters cost one slot regardless of how many cells use them.
+  Single-codepoint clusters use `cp` directly with `grapheme_id == 0` and
+  hit the arena zero times. Unlike libvterm's hard-coded 6-codepoint cell
+  cap, clusters here are arbitrary length.
+- **Hot path.** `bvt_input_write` does no allocation in steady state —
+  all hot-path structures (parser scratch, OSC accumulator up to 4 KiB,
+  cursor cluster buffer up to 16 codepoints) are inline in `BvtTerm`.
+  The intern tables grow geometrically and amortize to zero; the grapheme
+  arena reuses existing entries on hash hit.
+- **Lifecycle.** `bvt_new` / `bvt_free` is the only ownership pair the
+  consumer manages. `bvt_free` releases every page, intern table, arena,
+  and tab-stop bitmap through the same allocator that produced them.
+
+`BvtTerm` itself is not internally synchronized; callers own all locking.
+
 ## Build and install
 
 Standard GNU autotools workflow:
