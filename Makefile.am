@@ -9,6 +9,8 @@ pkgconfig_DATA = bloom-vt.pc
 
 EXTRA_DIST = \
     autogen.sh \
+    build-aux/git-version.sh \
+    version \
     README.md \
     COPYING \
     FOLLOWUPS.md \

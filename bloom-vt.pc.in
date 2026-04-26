@@ -6,6 +6,6 @@ includedir=@includedir@
 Name: bloom-vt
 Description: Standalone virtual terminal engine (UAX-aware grapheme clustering, scrollback, reflow)
 URL: https://github.com/thomas-christensen/bloom-vt
-Version: @PACKAGE_VERSION@
+Version: @BLOOM_VT_VERSION@
 Cflags: -I${includedir}
 Libs: -L${libdir} -lbloom-vt

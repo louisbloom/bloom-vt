@@ -13,6 +13,16 @@ AC_CONFIG_AUX_DIR([build-aux])
 AC_CONFIG_MACRO_DIRS([m4])
 AC_USE_SYSTEM_EXTENSIONS
 
+dnl Recompute the version at configure time so a rebuild after new commits
+dnl picks up the current version without needing to re-run autoreconf. Falls
+dnl back to PACKAGE_VERSION (set at autoreconf time via m4_esyscmd_s above)
+dnl for tarball builds where build-aux/git-version.sh has nothing to read.
+BLOOM_VT_VERSION=`"$srcdir/build-aux/git-version.sh" "$srcdir" 2>/dev/null`
+AS_IF([test -z "$BLOOM_VT_VERSION"],
+      [BLOOM_VT_VERSION="$PACKAGE_VERSION"])
+AC_SUBST([BLOOM_VT_VERSION])
+AC_MSG_NOTICE([bloom-vt version: $BLOOM_VT_VERSION])
+
 AM_INIT_AUTOMAKE([1.14 foreign subdir-objects -Wall -Werror])
 AM_SILENT_RULES([yes])
 
