@@ -414,6 +414,7 @@ static void clear_seq(BvtParser *p)
     p->param_count = 0;
     p->param_present = false;
     p->params[0] = 0;
+    p->param_is_subparam = 0;
     p->intermediate_count = 0;
 }
 
@@ -433,11 +434,17 @@ static void param_digit(BvtParser *p, uint8_t b)
     p->param_present = true;
 }
 
-static void param_separator(BvtParser *p)
+static void param_separator(BvtParser *p, bool is_colon)
 {
     if (p->param_count < BVT_CSI_PARAM_MAX) {
         p->param_count = (p->param_count == 0) ? 2 : p->param_count + 1;
         p->params[p->param_count - 1] = 0;
+        uint8_t idx = (uint8_t)(p->param_count - 1);
+        if (is_colon) {
+            p->param_is_subparam |= (uint32_t)1u << idx;
+        } else {
+            p->param_is_subparam &= ~((uint32_t)1u << idx);
+        }
     }
     p->param_present = false;
 }
@@ -620,7 +627,7 @@ static void state_csi_entry(BvtTerm *vt, uint8_t b)
         return;
     }
     if (b == ';' || b == ':') {
-        param_separator(p);
+        param_separator(p, b == ':');
         p->state = BVT_STATE_CSI_PARAM;
         return;
     }
@@ -654,7 +661,7 @@ static void state_csi_param(BvtTerm *vt, uint8_t b)
         return;
     }
     if (b == ';' || b == ':') {
-        param_separator(p);
+        param_separator(p, b == ':');
         return;
     }
     if (b >= '<' && b <= '?') {
@@ -723,7 +730,7 @@ static void state_dcs_entry(BvtTerm *vt, uint8_t b)
         return;
     }
     if (b == ';' || b == ':') {
-        param_separator(p);
+        param_separator(p, b == ':');
         p->state = BVT_STATE_DCS_PARAM;
         return;
     }
@@ -755,7 +762,7 @@ static void state_dcs_param(BvtTerm *vt, uint8_t b)
         return;
     }
     if (b == ';' || b == ':') {
-        param_separator(p);
+        param_separator(p, b == ':');
         return;
     }
     if (is_intermediate(b)) {

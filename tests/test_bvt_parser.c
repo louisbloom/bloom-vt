@@ -759,6 +759,83 @@ static void test_sgr_truecolor(void)
     bvt_free(vt);
 }
 
+static void test_sgr_truecolor_colon_form(void)
+{
+    /* CSI 38:2:R:G:B — ITU form, no empty colourspace slot. */
+    BvtTerm *vt = make_term(24, 80);
+    feed(vt, "\x1b[38:2:255:128:0mX");
+    const BvtStyle *s = bvt_cell_style(vt, bvt_get_cell(vt, 0, 0));
+    ASSERT_NOT_NULL(s);
+    ASSERT_EQ(s->fg_rgb, 0xFF8000u);
+    ASSERT_TRUE((s->color_flags & BVT_COLOR_DEFAULT_FG) == 0);
+    bvt_free(vt);
+}
+
+static void test_sgr_truecolor_colon_form_empty_slot(void)
+{
+    /* CSI 38:2::R:G:B — ITU form WITH the empty colourspace slot.
+     * Pre-fix bug: empty slot was read as R=0, shifting RGB by one and
+     * leaking the trailing param into the SGR loop as a stray code. */
+    BvtTerm *vt = make_term(24, 80);
+    feed(vt, "\x1b[38:2::255:128:0mX");
+    const BvtStyle *s = bvt_cell_style(vt, bvt_get_cell(vt, 0, 0));
+    ASSERT_NOT_NULL(s);
+    ASSERT_EQ(s->fg_rgb, 0xFF8000u);
+    /* Bg must remain default — no leak from the trailing param. */
+    ASSERT_TRUE((s->color_flags & BVT_COLOR_DEFAULT_BG) != 0);
+    bvt_free(vt);
+}
+
+static void test_sgr_underline_color_itu(void)
+{
+    /* SGR 4 + 58:2::R:G:B (the form used by examples/basic/attributes.sh). */
+    BvtTerm *vt = make_term(24, 80);
+    feed(vt, "\x1b[4;58:2::255:100:100mR");
+    const BvtStyle *s = bvt_cell_style(vt, bvt_get_cell(vt, 0, 0));
+    ASSERT_NOT_NULL(s);
+    ASSERT_EQ(s->ul_rgb, 0xFF6464u);
+    ASSERT_EQ(s->underline, BVT_UL_SINGLE);
+    ASSERT_TRUE((s->color_flags & BVT_COLOR_DEFAULT_UL) == 0);
+    /* No bg leak. */
+    ASSERT_TRUE((s->color_flags & BVT_COLOR_DEFAULT_BG) != 0);
+    bvt_free(vt);
+}
+
+static void test_sgr_underline_color_curly_orange(void)
+{
+    /* 4:3 (curly) followed by 58:2::255:200:50 (orange). */
+    BvtTerm *vt = make_term(24, 80);
+    feed(vt, "\x1b[4:3;58:2::255:200:50mO");
+    const BvtStyle *s = bvt_cell_style(vt, bvt_get_cell(vt, 0, 0));
+    ASSERT_NOT_NULL(s);
+    ASSERT_EQ(s->underline, BVT_UL_CURLY);
+    ASSERT_EQ(s->ul_rgb, 0xFFC832u);
+    ASSERT_TRUE((s->color_flags & BVT_COLOR_DEFAULT_BG) != 0);
+    bvt_free(vt);
+}
+
+static void test_sgr_underline_style_subparam_only(void)
+{
+    /* 4:3 → curly underline (subparam). 4;3 → underline + italic
+     * (two separate SGR codes); the 3 must NOT be consumed as an
+     * underline style. */
+    BvtTerm *vt = make_term(24, 80);
+    feed(vt, "\x1b[4:3mC");
+    const BvtStyle *s = bvt_cell_style(vt, bvt_get_cell(vt, 0, 0));
+    ASSERT_NOT_NULL(s);
+    ASSERT_EQ(s->underline, BVT_UL_CURLY);
+    ASSERT_TRUE((s->attrs & BVT_ATTR_ITALIC) == 0);
+    bvt_free(vt);
+
+    BvtTerm *vt2 = make_term(24, 80);
+    feed(vt2, "\x1b[4;3mI");
+    const BvtStyle *s2 = bvt_cell_style(vt2, bvt_get_cell(vt2, 0, 0));
+    ASSERT_NOT_NULL(s2);
+    ASSERT_EQ(s2->underline, BVT_UL_SINGLE);
+    ASSERT_TRUE((s2->attrs & BVT_ATTR_ITALIC) != 0);
+    bvt_free(vt2);
+}
+
 static void test_sgr_indexed(void)
 {
     BvtTerm *vt = make_term(24, 80);
@@ -1047,6 +1124,11 @@ int main(int argc, char *argv[])
     RUN_TEST(test_ich_dch);
     RUN_TEST(test_il_dl);
     RUN_TEST(test_sgr_truecolor);
+    RUN_TEST(test_sgr_truecolor_colon_form);
+    RUN_TEST(test_sgr_truecolor_colon_form_empty_slot);
+    RUN_TEST(test_sgr_underline_color_itu);
+    RUN_TEST(test_sgr_underline_color_curly_orange);
+    RUN_TEST(test_sgr_underline_style_subparam_only);
     RUN_TEST(test_sgr_indexed);
     RUN_TEST(test_reflow_grow);
     RUN_TEST(test_reflow_shrink);

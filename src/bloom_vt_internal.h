@@ -109,6 +109,11 @@ typedef struct
 {
     BvtParserState state;
     uint32_t params[BVT_CSI_PARAM_MAX];
+    /* Bit i set ⇒ params[i] was introduced by ':' (a subparam of the
+     * preceding param), not by ';'. Used to distinguish e.g. SGR 4:3
+     * (curly underline) from 4;3 (underline + italic), and to detect the
+     * empty colourspace slot in 38:2::R:G:B. */
+    uint32_t param_is_subparam;
     uint8_t param_count;
     bool param_present; /* whether the current slot has a digit */
     uint8_t intermediates[BVT_INTERMEDIATE_MAX];

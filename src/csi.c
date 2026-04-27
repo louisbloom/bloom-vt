@@ -21,6 +21,13 @@ static int param_or(BvtTerm *vt, int idx, int defval)
     return (p->params[idx] == 0) ? defval : (int)p->params[idx];
 }
 
+static bool param_is_subparam(const BvtParser *p, int idx)
+{
+    if (idx < 0 || idx >= p->param_count)
+        return false;
+    return (p->param_is_subparam & ((uint32_t)1u << (unsigned)idx)) != 0;
+}
+
 static bool has_intermediate(BvtTerm *vt, uint8_t b)
 {
     BvtParser *p = &vt->parser;
@@ -95,8 +102,13 @@ static int parse_color_arg(BvtTerm *vt, int i, uint32_t *out_rgb, bool *out_defa
             *out_default = false;
         }
     } else if (mode == 2) {
-        /* CSI 38;2;R;G;B  or  CSI 38:2::R:G:B — ITU form has an empty
-         * "colourspace ID" slot. We accept either. */
+        /* CSI 38;2;R;G;B  or  CSI 38:2:R:G:B  or  CSI 38:2::R:G:B —
+         * the third form has an empty "colourspace ID" subparam slot.
+         * Detect it: a subparam at i with 4+ remaining params means the
+         * empty slot is present; skip it before reading R, G, B. */
+        if (i < p->param_count && param_is_subparam(p, i) && (p->param_count - i) >= 4) {
+            i++;
+        }
         uint32_t r = (i < p->param_count) ? p->params[i++] : 0;
         uint32_t g = (i < p->param_count) ? p->params[i++] : 0;
         uint32_t b = (i < p->param_count) ? p->params[i++] : 0;
@@ -127,21 +139,16 @@ static void sgr_dispatch(BvtTerm *vt)
             break;
         case 4:
         {
-            /* CSI 4:N m — extended underline subparameter form.
-             * We don't currently surface sub-params separately, so
-             * map: SGR 4 → single. SGR 4:N is parsed as SGR 4
-             * followed by parameter N if `:` was used, but our
-             * parser folds `:` and `;` together, so 4:3 looks like
-             * (4)(3). Detect and consume. */
+            /* CSI 4 m       → single underline.
+             * CSI 4:N m     → extended underline style (N ∈ 0..5).
+             * CSI 4;N m     → SGR 4 followed by SGR N — the N must NOT
+             *                 be consumed here (e.g. 4;3 = underline +
+             *                 italic). The subparam bit distinguishes. */
             uint8_t style = BVT_UL_SINGLE;
-            if (i < p->param_count) {
-                /* Heuristic: if the next param is in 0..5 it's
-                 * the underline style. */
-                uint32_t n = p->params[i];
-                if (n <= 5) {
+            if (i < p->param_count && param_is_subparam(p, i)) {
+                uint32_t n = p->params[i++];
+                if (n <= 5)
                     style = (uint8_t)n;
-                    i++;
-                }
             }
             vt->cursor.pen.underline = style;
             break;
