@@ -282,3 +282,14 @@ size_t bvt_cell_get_grapheme(const BvtTerm *vt, const BvtCell *cell,
         return 0;
     return bvt_grapheme_read(page, cell->grapheme_id, out, out_cap);
 }
+
+size_t bvt_cell_get_hyperlink(const BvtTerm *vt, const BvtCell *cell,
+                              uint8_t *out_uri, size_t out_cap)
+{
+    if (!vt || !cell || cell->hyperlink_id == 0 || !out_uri || out_cap == 0)
+        return 0;
+    const BvtPage *page = bvt_find_owner_page(vt, cell);
+    if (!page)
+        return 0;
+    return bvt_hyperlink_read(page, cell->hyperlink_id, out_uri, out_cap);
+}

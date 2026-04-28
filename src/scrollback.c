@@ -86,7 +86,8 @@ void bvt_scrollback_push(BvtTerm *vt, const BvtCell *src_cells, int cols,
     BvtCell *dst = &head->cells[(size_t)row * head->cols];
     head->row_flags[row] = wrapline ? (uint8_t)BVT_CELL_WRAPLINE : 0u;
 
-    /* Re-intern style and grapheme references into the head page. */
+    /* Re-intern style, grapheme, and hyperlink references into the
+     * head page — page-scoped tables don't carry across pages. */
     for (int c = 0; c < cols && c < head->cols; ++c) {
         BvtCell src = src_cells[c];
         const BvtStyle *src_style =
@@ -103,9 +104,19 @@ void bvt_scrollback_push(BvtTerm *vt, const BvtCell *src_cells, int cols,
                 new_grapheme_id = bvt_grapheme_intern(
                     vt, head, cps, (uint32_t)n);
         }
+        uint16_t new_hyperlink_id = 0u;
+        if (src.hyperlink_id != 0u) {
+            uint8_t uri[2084]; /* > spec-de-facto 2083-byte URI cap */
+            size_t n = bvt_hyperlink_read(vt->grid, src.hyperlink_id,
+                                          uri, sizeof(uri));
+            if (n > 0)
+                new_hyperlink_id = bvt_hyperlink_intern(
+                    vt, head, uri, (uint32_t)n);
+        }
         dst[c] = src;
         dst[c].style_id = new_style_id;
         dst[c].grapheme_id = new_grapheme_id;
+        dst[c].hyperlink_id = new_hyperlink_id;
     }
     head->row_count++;
     vt->sb_lines++;

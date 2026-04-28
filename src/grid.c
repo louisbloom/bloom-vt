@@ -67,6 +67,7 @@ void bvt_page_free(BvtTerm *vt, BvtPage *page)
     bvt_dealloc(vt, page->styles.index);
     bvt_dealloc(vt, page->graphemes.codepoints);
     bvt_dealloc(vt, page->graphemes.dedup_index);
+    bvt_hyperlink_free(vt, &page->hyperlinks);
     /* The page header + cells + row_flags are one allocation. */
     bvt_dealloc(vt, page);
 }

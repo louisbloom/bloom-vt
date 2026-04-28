@@ -61,6 +61,31 @@ typedef struct
 } BvtGraphemeArena;
 
 /* ------------------------------------------------------------------ */
+/* Hyperlink intern table (OSC 8)                                       */
+/* ------------------------------------------------------------------ */
+
+/* URIs are interned per page. Cells reference an entry by uint16_t id;
+ * id 0 means "no link". `data` is a bump-allocated byte arena; offsets[id]
+ * and lengths[id] locate each entry. dedup_index hashes URI bytes (FNV-1a)
+ * to an id so identical URIs share a slot — this gives a renderer free
+ * run-continuity (OSC 8 spec's primary use case for the `id=` parameter).
+ *
+ * Slot value 0 in dedup_index means "empty"; non-zero values are ids.
+ */
+typedef struct
+{
+    uint8_t *data;
+    uint32_t used;
+    uint32_t capacity;
+    uint32_t *offsets;     /* [id] -> offset into data */
+    uint32_t *lengths;     /* [id] -> URI byte length */
+    uint16_t count;        /* number of interned URIs (id 1..count) */
+    uint16_t capacity_ids; /* offsets/lengths capacity */
+    uint16_t *dedup_index; /* open-addressed hash slot -> id, 0 = empty */
+    uint32_t dedup_capacity;
+} BvtHyperlinkTable;
+
+/* ------------------------------------------------------------------ */
 /* Page                                                                */
 /* ------------------------------------------------------------------ */
 
@@ -77,6 +102,7 @@ typedef struct BvtPage
 
     BvtStyleTable styles;
     BvtGraphemeArena graphemes;
+    BvtHyperlinkTable hyperlinks;
 
     /* No flexible array yet — initial scaffold uses sub-allocations.
      * The plan calls for a single backing buffer; we'll consolidate
@@ -256,6 +282,14 @@ uint32_t bvt_grapheme_intern(BvtTerm *vt, BvtPage *page,
                              const uint32_t *cps, uint32_t len);
 size_t bvt_grapheme_read(const BvtPage *page, uint32_t id,
                          uint32_t *out, size_t out_cap);
+
+/* Hyperlink intern (OSC 8). Returns id (1..UINT16_MAX), or 0 on
+ * allocation failure / overflow / empty URI. */
+uint16_t bvt_hyperlink_intern(BvtTerm *vt, BvtPage *page,
+                              const uint8_t *uri, uint32_t uri_len);
+size_t bvt_hyperlink_read(const BvtPage *page, uint16_t id,
+                          uint8_t *out, size_t out_cap);
+void bvt_hyperlink_free(BvtTerm *vt, BvtHyperlinkTable *t);
 
 /* Parser entry. */
 void bvt_parser_init(BvtParser *p);

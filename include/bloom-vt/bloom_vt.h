@@ -115,6 +115,14 @@ const BvtStyle *bvt_cell_style(const BvtTerm *vt, const BvtCell *cell);
 size_t bvt_cell_get_grapheme(const BvtTerm *vt, const BvtCell *cell,
                              uint32_t *out, size_t out_cap);
 
+/* Copy a cell's hyperlink URI bytes into `out_uri`. Returns the URI
+ * length, or 0 if the cell has no link or the term/cell is invalid.
+ * The URI bytes are raw (per OSC 8 spec, constrained to 32–126);
+ * callers wanting a C string must NUL-terminate. A return value equal
+ * to `out_cap` indicates truncation. */
+size_t bvt_cell_get_hyperlink(const BvtTerm *vt, const BvtCell *cell,
+                              uint8_t *out_uri, size_t out_cap);
+
 /* ------------------------------------------------------------------ */
 /* Geometry                                                            */
 /* ------------------------------------------------------------------ */

@@ -1,7 +1,12 @@
 # bloom-vt — follow-ups
 
-Living checklist for the `feature/bloom-vt` branch. Promote items to PRs as
-they get worked on. Order is roughly priority, not strict dependency.
+Living checklist for bloom-vt. Promote items to PRs as they get worked
+on. Order is roughly priority, not strict dependency.
+
+Scope: this file tracks bloom-vt only. Items relating to bloom-terminal's
+wrapper of bloom-vt (PNG harness, SDL3 / GTK4 platform layers, renderer
+work) live in bloom-terminal's own roadmap and are tagged here as
+**[bloom-terminal]** when referenced for context.
 
 ## Headless interactive testing infrastructure
 
@@ -9,56 +14,24 @@ they get worked on. Order is roughly priority, not strict dependency.
   shell on a real PTY using `pty_create()` / `pty_read()` / `pty_write()` /
   `pty_destroy()` from `src/pty.c`, pipes raw output into `bvt_input_write()`,
   asserts on `bvt_get_cell` / `bvt_get_cursor` / `bvt_get_scrollback_lines` /
-  `bvt_get_title`. No SDL, no FreeType, no atlas. Wire under the existing
-  `if !HOST_WINDOWS` block in `tests/Makefile.am` next to `test_pty_pause`.
-  Goes into `make check`. Test scenarios:
-  - `echo hello` — basic stdout
-  - `printf '\033[31mred\033[0m'` — SGR
-  - `tput clear` / `tput cup 5 10` — cursor moves via terminfo
-  - `printf <ZWJ family bytes>` — arbitrary-length clusters
-  - `echo 你好` — CJK
-  - `tput smcup; tput rmcup` — altscreen swap
-  - `for i in {1..50}; do echo line$i; done` — scrollback
-  - bracketed paste begin/end via `printf '\033[?2004h'`
+  `bvt_get_title`. **Status: done.** In tree and runs under `make check`.
 
-- **B. `bloom-terminal -P --exec CMD [--wait MS]`** — visual A/B harness.
-  Extend `src/png_mode.c`: when `--exec` is set, fork+exec CMD via
-  `pty_create()`, drain into the chosen backend until child exits or
-  `--wait MS` (default 200) elapses, then render to PNG and exit. Geometry
-  from `-g` (default 80x24). Lets us A/B `glow README.md`, `vim`, `htop`,
-  vttest snapshots etc. against libvterm with byte-identical comparison.
+- **[bloom-terminal] B. `bloom-terminal -P --exec CMD [--wait MS]`** —
+  visual A/B harness in bloom-terminal's `src/png_mode.c`.
+- **[bloom-terminal] C. `bloom-terminal --headless --trace=PATH`** —
+  full-stack harness with stubbed SDL3 and a synthetic key protocol on
+  stdin.
+- **[bloom-terminal] D. `--exec` with input scripting** — extends B with
+  `--input=BYTES` for full keystroke-to-PNG round-trip regression tests.
 
-- **C. `bloom-terminal --headless --trace=PATH`** — full-stack harness.
-  Same binary, same `term_bvt` / `bvt` plumbing as the real run, but
-  stub out SDL3 (no window, no renderer) and accept synthetic key
-  events from stdin in a small text protocol (`KEY shift+enter`,
-  `TEXT hello`, `MOUSE click 5,10`). All bytes in both directions are
-  appended to PATH with direction + timestamp markers. Catches bugs
-  the engine-only harness (A) and the PTY recorder (`scripts/pty_record.py`)
-  cannot — anything in the SDL → on_key → terminal_send_key chain,
-  e.g. modifier mapping in `platform_sdl3.c` or the `term_bvt.c` map_key
-  table. ~100-200 LOC including the stdin parser. Justified the next
-  time a "key foo doesn't work in TUI bar" bug shows up.
+B / C / D live in bloom-terminal's roadmap, not this one.
 
-- **D. `--exec` with input scripting**. Extend B with `--input=BYTES`
-  (decoded `\xNN` escapes) and `--input-after=MS`. Runs CMD on a PTY,
-  waits, injects bytes, waits again, renders PNG. Exercises full
-  round-trip: keystroke → bvt encoding → PTY → CMD → response →
-  PNG. Useful for regression-testing things like Shift+Enter in
-  Claude Code without a workstation.
+`scripts/pty_record.py` (in bloom-terminal) is a simpler cousin to C —
+Python, no SDL, no bloom-vt — for diagnosing what a TUI emits _before_
+any terminal renders it. Useful when a TUI's progressive enhancement
+seems to silently fail: often the answer is that the TUI never tried.
 
-A is the CI gate. B / C / D are opt-in tools for specific
-investigations; build them when a bug demands them rather than
-upfront.
-
-`scripts/pty_record.py` is a simpler cousin to C — Python, no SDL,
-no bloom-vt — for diagnosing what a TUI emits _before_ any terminal
-renders it. Used to find Claude Code's `TERM_PROGRAM` allowlist that
-gates kitty kb push (ghostty / kitty / WezTerm / iTerm.app). Keep
-this in mind whenever a TUI's progressive enhancement seems to
-silently fail: the answer is often that the TUI never tried.
-
-## Soak test status (PNG mode A/B via `-P --exec`)
+## [bloom-terminal] Soak test status (PNG mode A/B via `-P --exec`)
 
 **Byte-identical to libvterm** (acceptance: pass without further work):
 
@@ -96,7 +69,7 @@ assertions instead):
 
 - htop / btop / live monitors
 
-## Manual interactive sweep (workstation with display only)
+## [bloom-terminal] Manual interactive sweep (workstation with display only)
 
 Run the binary directly with `BLOOM_TERMINAL_VT=bloomvt`:
 
@@ -108,53 +81,81 @@ Run the binary directly with `BLOOM_TERMINAL_VT=bloomvt`:
 - window resize reflow
 - altscreen swap via vim
 
-## Step 15 — Default flip + libvterm removal ✅ done (d5e62d8 + aae22d7)
+## Extraction history (done)
 
-bloom-vt is the default and the only backend. `src/term_vt.c` (1372
-LOC), the libvterm `pkg-config` check, the `BLOOM_TERMINAL_VT`
-env-var dispatch, the `ext_grid` SGR rewriting, the mingw64 +
-osxcross libvterm cross-compile blocks in `build.sh`, and the
-"--reflow UNSTABLE" warning are gone.
+bloom-vt was extracted from bloom-terminal across steps 15–18:
 
-## Step 16 — VS16 shift hack removal ✅ done (7225bd7)
+- Step 15 (d5e62d8 + aae22d7): bloom-vt became the default and only
+  backend in bloom-terminal. libvterm, `term_vt.c`, the
+  `BLOOM_TERMINAL_VT` env-var dispatch, the `ext_grid` SGR rewriting,
+  and the libvterm cross-compile blocks are gone.
+- Step 16 (7225bd7): VS16 shift hack removal — `TerminalRowIter` is a
+  plain `vt_col += cell.width` walk.
+- Step 17: renderer migration to `bvt_cell_get_grapheme()`. The
+  6-codepoint-per-cell cap is gone; arbitrary-length clusters are
+  retrieved via the public accessor.
+- Step 18 (4d61c26): lift to `/home/thomasc/git/bloom-vt` as a
+  standalone autotools project with `bloom-vt.pc` for pkg-config
+  consumers.
 
-`TerminalRowIter` is a plain `vt_col += cell.width` walk;
-`terminal_cell_presentation_width` is deleted;
-`terminal_vt_col_to_vis_col` / `terminal_vis_col_to_vt_col` are
-identity wrappers retained for source compatibility. CLAUDE.md
-"Emoji Width Paradigm" rewritten.
+Original detail lives in `git log` of bloom-terminal.
 
-## Step 17 — Renderer migration (cell.chars → grapheme accessor) ✅ done
+## Planned
 
-The 6-codepoint-per-cell cap is gone. `TerminalCell` now carries
-`(uint32_t cp, uint32_t grapheme_id)` instead of `chars[6]`; the full
-sequence is fetched by the new `terminal_cell_get_grapheme(term,
-unified_row, col, out, cap)` accessor (vtable hook on `TerminalBackend`).
-The bvt backend implements it via `bvt_cell_get_grapheme()`. Updated
-call-sites: `src/rend_sdl3.c` (glyph lookup + PNG trim scan),
-`src/term.c` (selection char_class + clipboard text extraction). Coverage
-in `tests/test_term_bvt.c::test_long_cluster_survives_accessor`
-exercising the 7-cp ZWJ family 👨‍👩‍👧‍👦.
+### OSC 8 hyperlink parsing (parse + store; no rendering) ✅ done
 
-## Step 18 — Extract to `/home/thomasc/git/bloom-vt`
+Spec: <https://gist.github.com/egmontkob/eb114294efbcd5adb1944c9f3cb5feda>
+(ECMA-48 §8.3.89 for `ST`). Adoption tracker:
+<https://github.com/Alhadis/OSC8-Adoption>.
 
-Once everything above is stable, lift `src/bloom_vt/` into its own repo:
+Sequence: `OSC 8 ; params ; URI ST` (BEL terminator also accepted; spec
+prefers `ST`). Empty URI closes the active link. `params` is `:`-separated
+`key=value` pairs (only `id` is defined; we parse-and-discard for v1).
+URI/params bytes are constrained to 32–126 per spec; URI size limit is
+~2083 bytes (VTE / iTerm2 de-facto).
 
-- Autotools layout matching the other `bloom-*` projects.
-- `bloom-vt.pc` for pkg-config consumers.
-- README, license (BSD/MIT — match libvterm's spirit), top-level
-  `build.sh`.
-- Update `bloom-terminal`'s `configure.ac` to `pkg-config bloom-vt`.
+Implementation: `src/hyperlink.c` interns URIs per page (FNV-1a +
+open-addressed dedup); cells reference URIs by `uint16_t hyperlink_id`.
+The active id lives on `BvtCursorState` and is stamped into each cell at
+print time. `bvt_scrollback_push` re-interns ids so URIs survive the
+boundary into a scrollback page. Public accessor:
+`bvt_cell_get_hyperlink(vt, cell, out, cap) -> length`. Coverage in
+`tests/test_bvt_parser.c::test_osc8_*` (9 tests).
+
+Rendering — clickable link styling, hover state, click dispatch — is
+**[bloom-terminal]**'s next slice.
+
+## Investigate
+
+- **Hoist `bvt_flush_cluster()` into `bvt_osc_dispatch`.** OSC 8 added a
+  flush at the top of its handler (mirroring the csi.c / esc.c / modes.c
+  pattern) so the previous link's still-pending cluster gets the old
+  pen. Title-setting (OSC 0/1/2) doesn't currently mutate render state,
+  so the missing flush there is benign — but the asymmetry is a trap:
+  the next OSC code that touches the pen will quietly miscolour the
+  pending cluster. Cheap fix: move the flush to the top of
+  `bvt_osc_dispatch`. Wait for either a second consumer or a
+  reproducible corpus bug before changing it.
 
 ## Out of scope for v1 (defer indefinitely)
 
-- OSC 8 hyperlink rendering (parse + store id only; renderer support
-  later).
-- Kitty graphics protocol.
-- Synchronized output (mode 2026) — easy to add once parser is solid.
-- Image-cell underlay protocol — sixel scrolling is already handled by
-  the existing sixel layer.
-- Right-to-left text shaping — handled at HarfBuzz, not VT.
+- **Kitty graphics protocol.**
+- **Synchronized output** (mode 2026) — easy to add once parser is solid.
+- **Image-cell underlay protocol** — sixel scrolling is **[bloom-terminal]**'s
+  domain (handled by its sixel layer).
+- **Right-to-left text shaping** — handled at HarfBuzz in **[bloom-terminal]**,
+  not at the VT layer.
+- **OSC 8 link rendering / click dispatch / hover styling** —
+  **[bloom-terminal]**. bloom-vt parses and stores OSC 8 (see "Planned"
+  above); rendering it as clickable underlined text is bloom-terminal's
+  job.
+- **OSC 8 `id=` continuity parameter** — parsed-and-discarded for v1.
+  Adjacent same-URI runs already share an interned id by construction
+  (URI dedup), which covers the spec's primary use case. Add this only
+  when a renderer surfaces the gap in the secondary case (same logical
+  link, differing URI text).
+- **OSC 8 inside DCS / SOS-PM-APC strings** — not a real corpus case;
+  standard OSC parsing only.
 
 ## Kitty keyboard protocol — deferred flags
 

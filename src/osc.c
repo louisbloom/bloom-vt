@@ -2,8 +2,15 @@
  * bloom-vt — OSC dispatcher.
  *
  * Parses the leading numeric code and routes title-setting (0/1/2) to
- * the set_title callback, hands everything else to the generic osc
- * callback. OSC 8 (hyperlink) parsing arrives in a follow-up.
+ * the set_title callback, hands OSC 8 to the hyperlink dispatcher, and
+ * forwards everything else to the generic osc callback.
+ *
+ * OSC 8 — hyperlink protocol (de-facto spec by Egmont Koblinger):
+ *   https://gist.github.com/egmontkob/eb114294efbcd5adb1944c9f3cb5feda
+ * Sequence: OSC 8 ; params ; URI ST  (BEL also accepted).
+ * Empty URI closes the active link. params is ':'-separated key=value
+ * pairs (only `id` is defined); for v1 we parse-and-discard params and
+ * use the URI alone — same-URI dedup gives renderers free run-continuity.
  */
 
 #include "bloom_vt_internal.h"
@@ -25,6 +32,38 @@ static int parse_code(const uint8_t *data, size_t len, size_t *out_offset)
         i++;
     *out_offset = i;
     return code;
+}
+
+/* OSC 8 dispatcher. Body shape: `params;URI`. The URI runs from the
+ * first ';' to the end. An empty URI ('') closes the active hyperlink. */
+static void osc8_dispatch(BvtTerm *vt, const uint8_t *body, size_t body_len)
+{
+    /* Commit any pending cluster before mutating the pen — same pattern
+     * as csi.c / esc.c / modes.c. Without this the previous link's text
+     * (still in cluster_buf) would be stamped with the new id. */
+    bvt_flush_cluster(vt);
+
+    /* Find the first ';' separating params from URI. Per spec the
+     * params field cannot contain ';', so a literal scan is correct. */
+    size_t sep = 0;
+    while (sep < body_len && body[sep] != ';')
+        sep++;
+    if (sep >= body_len) {
+        /* Malformed — no second ';'. Treat as unlink (defensive). */
+        vt->cursor.hyperlink_id = 0;
+        return;
+    }
+    const uint8_t *uri = body + sep + 1;
+    size_t uri_len = body_len - sep - 1;
+
+    if (uri_len == 0) {
+        vt->cursor.hyperlink_id = 0;
+        return;
+    }
+    /* Lazy grid alloc — interning lives on the active grid page. */
+    bvt_grid_ensure(vt);
+    vt->cursor.hyperlink_id =
+        bvt_hyperlink_intern(vt, vt->grid, uri, (uint32_t)uri_len);
 }
 
 static void set_title(BvtTerm *vt, const uint8_t *data, size_t len)
@@ -52,6 +91,9 @@ void bvt_osc_dispatch(BvtTerm *vt, const uint8_t *data, size_t len)
     case 1:
     case 2:
         set_title(vt, body, body_len);
+        break;
+    case 8:
+        osc8_dispatch(vt, body, body_len);
         break;
     default:
         if (vt->callbacks.osc) {

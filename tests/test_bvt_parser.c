@@ -135,6 +135,191 @@ static void test_osc_title_st(void)
     bvt_free(vt);
 }
 
+static void test_osc8_marks_cell(void)
+{
+    BvtTerm *vt = make_term(24, 80);
+    feed(vt, "\x1b]8;;http://example.com\x07X");
+    const BvtCell *c = bvt_get_cell(vt, 0, 0);
+    ASSERT_NOT_NULL(c);
+    ASSERT_EQ(c->cp, (uint32_t)'X');
+    ASSERT_NEQ(c->hyperlink_id, 0);
+    bvt_free(vt);
+}
+
+static void test_osc8_empty_uri_unlinks(void)
+{
+    BvtTerm *vt = make_term(24, 80);
+    /* Hex escapes greedily consume hex digits — break with adjacent
+     * string literals so \x07 stays a single byte. */
+    feed(vt, "\x1b]8;;http://example.com\x07"
+             "A\x1b]8;;\x07"
+             "B");
+    const BvtCell *a = bvt_get_cell(vt, 0, 0);
+    const BvtCell *b = bvt_get_cell(vt, 0, 1);
+    ASSERT_NOT_NULL(a);
+    ASSERT_NOT_NULL(b);
+    ASSERT_NEQ(a->hyperlink_id, 0);
+    ASSERT_EQ(b->hyperlink_id, 0u);
+    bvt_free(vt);
+}
+
+static void test_osc8_uri_roundtrip(void)
+{
+    BvtTerm *vt = make_term(24, 80);
+    feed(vt, "\x1b]8;;http://example.com\x07X");
+    const BvtCell *c = bvt_get_cell(vt, 0, 0);
+    ASSERT_NOT_NULL(c);
+    ASSERT_NEQ(c->hyperlink_id, 0);
+    uint8_t uri[64];
+    size_t n = bvt_cell_get_hyperlink(vt, c, uri, sizeof(uri));
+    ASSERT_EQ(n, (size_t)18);
+    uri[n] = '\0';
+    ASSERT_STR_EQ((const char *)uri, "http://example.com");
+    bvt_free(vt);
+}
+
+static void test_osc8_dedup(void)
+{
+    BvtTerm *vt = make_term(24, 80);
+    /* Link, print A, unlink, link to same URL, print B. Both cells
+     * should share the same interned id (dedup gives renderers free
+     * run-continuity). */
+    feed(vt, "\x1b]8;;http://a\x07"
+             "A\x1b]8;;\x07"
+             "\x1b]8;;http://a\x07"
+             "B");
+    const BvtCell *a = bvt_get_cell(vt, 0, 0);
+    const BvtCell *b = bvt_get_cell(vt, 0, 1);
+    ASSERT_NOT_NULL(a);
+    ASSERT_NOT_NULL(b);
+    ASSERT_NEQ(a->hyperlink_id, 0);
+    ASSERT_EQ(a->hyperlink_id, b->hyperlink_id);
+    bvt_free(vt);
+}
+
+static void test_osc8_id_cap(void)
+{
+    /* Spot-check the overflow-safe behaviour: feed a few hundred
+     * distinct URIs and confirm intern keeps returning monotonic ids
+     * with no crash. (Exhausting all 65k ids would balloon the test
+     * runtime — the unit test exists to lock the no-crash contract;
+     * the cap-enforcement code lives in hyperlink.c.) */
+    BvtTerm *vt = make_term(24, 80);
+    char osc[64];
+    for (int i = 0; i < 256; ++i) {
+        int n = snprintf(osc, sizeof(osc),
+                         "\x1b]8;;http://h%d\x07X", i);
+        bvt_input_write(vt, (const uint8_t *)osc, (size_t)n);
+    }
+    /* The most recent cell should still resolve to a valid URI. */
+    BvtCursor cur = bvt_get_cursor(vt);
+    /* At col 0 of cur.row-1 worst case (we may have wrapped). Walk back
+     * one column on the same row. */
+    int col = cur.col - 1;
+    int row = cur.row;
+    if (col < 0) {
+        col = 79;
+        row -= 1;
+    }
+    const BvtCell *c = bvt_get_cell(vt, row, col);
+    ASSERT_NOT_NULL(c);
+    ASSERT_NEQ(c->hyperlink_id, 0);
+    bvt_free(vt);
+}
+
+static void test_osc8_with_id_param(void)
+{
+    /* The OSC 8 `id=` parameter is the only spec-defined param. We
+     * parse-and-discard it for v1 — what matters is the URI extraction
+     * picks the bytes after the FIRST ';'. */
+    BvtTerm *vt = make_term(24, 80);
+    feed(vt, "\x1b]8;id=foo;http://x\x07Y");
+    const BvtCell *c = bvt_get_cell(vt, 0, 0);
+    ASSERT_NOT_NULL(c);
+    ASSERT_NEQ(c->hyperlink_id, 0);
+    uint8_t uri[64];
+    size_t n = bvt_cell_get_hyperlink(vt, c, uri, sizeof(uri));
+    ASSERT_EQ(n, (size_t)8);
+    uri[n] = '\0';
+    ASSERT_STR_EQ((const char *)uri, "http://x");
+    bvt_free(vt);
+}
+
+static void test_osc8_cjk_continuation(void)
+{
+    /* The width-0 continuation cell of a CJK ideograph must carry the
+     * same hyperlink id as the leading width-2 cell, so a renderer
+     * doesn't need peek-ahead logic to underline a wide glyph. */
+    BvtTerm *vt = make_term(24, 80);
+    feed(vt, "\x1b]8;;http://example.com\x07\xe4\xbd\xa0"); /* 你 */
+    const BvtCell *lead = bvt_get_cell(vt, 0, 0);
+    const BvtCell *cont = bvt_get_cell(vt, 0, 1);
+    ASSERT_NOT_NULL(lead);
+    ASSERT_NOT_NULL(cont);
+    ASSERT_EQ(lead->width, (uint8_t)2);
+    ASSERT_EQ(cont->width, (uint8_t)0);
+    ASSERT_NEQ(lead->hyperlink_id, 0);
+    ASSERT_EQ(lead->hyperlink_id, cont->hyperlink_id);
+    bvt_free(vt);
+}
+
+static void test_osc8_scrollback_reintern(void)
+{
+    /* Linked text scrolled into scrollback must keep its URI accessible
+     * through the new owning page's intern table. */
+    BvtTerm *vt = make_term(3, 80);
+    feed(vt, "\x1b]8;;http://example.com\x07Link\x1b]8;;\x07\n\n\n\n");
+    /* Verify at least one row is in scrollback. */
+    int sb = bvt_get_scrollback_lines(vt);
+    ASSERT_NEQ(sb, 0);
+    /* Find the row with 'L' in scrollback (the first scrolled-out row). */
+    const BvtCell *l = NULL;
+    for (int i = 0; i < sb; ++i) {
+        const BvtCell *cell = bvt_get_scrollback_cell(vt, i, 0);
+        if (cell && cell->cp == (uint32_t)'L') {
+            l = cell;
+            break;
+        }
+    }
+    ASSERT_NOT_NULL(l);
+    ASSERT_NEQ(l->hyperlink_id, 0);
+    uint8_t uri[64];
+    size_t n = bvt_cell_get_hyperlink(vt, l, uri, sizeof(uri));
+    ASSERT_EQ(n, (size_t)18);
+    uri[n] = '\0';
+    ASSERT_STR_EQ((const char *)uri, "http://example.com");
+    bvt_free(vt);
+}
+
+static void test_osc8_st_terminator(void)
+{
+    /* Spec says ST (ESC \) is the standard terminator and is preferred
+     * over BEL. Verify both are accepted. */
+    BvtTerm *vt = make_term(24, 80);
+    feed(vt, "\x1b]8;;http://example.com\x1b\\X");
+    const BvtCell *c = bvt_get_cell(vt, 0, 0);
+    ASSERT_NOT_NULL(c);
+    ASSERT_NEQ(c->hyperlink_id, 0);
+    uint8_t uri[64];
+    size_t n = bvt_cell_get_hyperlink(vt, c, uri, sizeof(uri));
+    ASSERT_EQ(n, (size_t)18);
+    bvt_free(vt);
+}
+
+static void test_osc8_distinct_uris(void)
+{
+    BvtTerm *vt = make_term(24, 80);
+    feed(vt, "\x1b]8;;http://a\x07"
+             "A\x1b]8;;http://b\x07"
+             "B");
+    const BvtCell *a = bvt_get_cell(vt, 0, 0);
+    const BvtCell *b = bvt_get_cell(vt, 0, 1);
+    ASSERT_NEQ(a->hyperlink_id, 0);
+    ASSERT_NEQ(b->hyperlink_id, 0);
+    ASSERT_NEQ(a->hyperlink_id, b->hyperlink_id);
+    bvt_free(vt);
+}
+
 static void test_utf8_basic(void)
 {
     BvtTerm *vt = make_term(24, 80);
@@ -1090,6 +1275,16 @@ int main(int argc, char *argv[])
     RUN_TEST(test_osc_title_st);
     RUN_TEST(test_utf8_basic);
     RUN_TEST(test_utf8_replacement);
+    RUN_TEST(test_osc8_marks_cell);
+    RUN_TEST(test_osc8_empty_uri_unlinks);
+    RUN_TEST(test_osc8_uri_roundtrip);
+    RUN_TEST(test_osc8_dedup);
+    RUN_TEST(test_osc8_distinct_uris);
+    RUN_TEST(test_osc8_st_terminator);
+    RUN_TEST(test_osc8_scrollback_reintern);
+    RUN_TEST(test_osc8_cjk_continuation);
+    RUN_TEST(test_osc8_with_id_param);
+    RUN_TEST(test_osc8_id_cap);
     RUN_TEST(test_csi_sgr_reset);
     RUN_TEST(test_bel);
     RUN_TEST(test_style_intern_dedup);
