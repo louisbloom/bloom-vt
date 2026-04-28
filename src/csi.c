@@ -545,17 +545,23 @@ void bvt_csi_dispatch(BvtTerm *vt, uint8_t final)
                 vt->kitty_kb_depth--;
             }
         } else if (has_intermediate(vt, '=')) {
-            /* CSI = flags ; mode u — set/clear/replace the active
-             * flags. mode 1 = OR in, 2 = mask out, 3 = replace. */
+            /* CSI = flags ; mode u — update the active flags. Per the
+             * kitty keyboard protocol:
+             *   mode 1 (default) — reset all flags, then set given.
+             *   mode 2           — set given (OR in).
+             *   mode 3           — reset given (AND-NOT).
+             * Mode 1 is the cleanup form most TUIs use on exit:
+             * `CSI = 0 ; 1 u` clears every flag they pushed without
+             * needing to know what was there. Crush relies on this. */
             uint32_t flags = (uint32_t)param_or(vt, 0, 0);
             int mode = param_or(vt, 1, 1);
             uint32_t *top = &vt->kitty_kb_stack[vt->kitty_kb_depth];
             if (mode == 1)
-                *top |= flags;
-            else if (mode == 2)
-                *top &= ~flags;
-            else if (mode == 3)
                 *top = flags;
+            else if (mode == 2)
+                *top |= flags;
+            else if (mode == 3)
+                *top &= ~flags;
         }
         break;
 

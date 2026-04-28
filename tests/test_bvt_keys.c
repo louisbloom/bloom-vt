@@ -194,21 +194,33 @@ static void test_query_active_flags(void)
     bvt_free(vt);
 }
 
-/* CSI = flags ; mode u: mode 1 OR-sets, mode 2 AND-clears, mode 3
- * replaces. Verify each by observing the post-set flag mask. */
+/* CSI = flags ; mode u: per the kitty keyboard protocol, mode 1
+ * (default) is reset-all-then-set, mode 2 is OR in, mode 3 is AND-NOT.
+ * Crush's exit cleanup uses the mode-1 form `CSI = 0 ; 1 u` to wipe the
+ * flag set; if mode 1 is mis-implemented as OR, the cleanup is a no-op
+ * and the disambiguate flag stays set, which causes ctrl-letters to
+ * keep arriving as CSI-u sequences after the program exits. */
 static void test_set_clear_replace(void)
 {
     BvtTerm *vt = make_term();
     feed(vt, "\x1b[>1u"); /* depth=1, flags=1 */
 
-    feed(vt, "\x1b[=8;1u"); /* OR in 0x8 → 0x9 */
+    feed(vt, "\x1b[=8;2u"); /* mode 2 = set/OR in 0x8 → 0x9 */
     ASSERT_EQ(vt->kitty_kb_stack[vt->kitty_kb_depth], 9u);
 
-    feed(vt, "\x1b[=1;2u"); /* clear bit 0x1 → 0x8 */
+    feed(vt, "\x1b[=1;3u"); /* mode 3 = reset bit 0x1 → 0x8 */
     ASSERT_EQ(vt->kitty_kb_stack[vt->kitty_kb_depth], 8u);
 
-    feed(vt, "\x1b[=4;3u"); /* replace with 0x4 */
+    feed(vt, "\x1b[=4;1u"); /* mode 1 = reset all + set 0x4 → 0x4 */
     ASSERT_EQ(vt->kitty_kb_stack[vt->kitty_kb_depth], 4u);
+
+    /* Crush's exit form: `CSI = 0 ; 1 u` clears every flag. */
+    feed(vt, "\x1b[=0;1u");
+    ASSERT_EQ(vt->kitty_kb_stack[vt->kitty_kb_depth], 0u);
+
+    /* Default mode is 1; bare `CSI = N u` is reset-and-set. */
+    feed(vt, "\x1b[=2u");
+    ASSERT_EQ(vt->kitty_kb_stack[vt->kitty_kb_depth], 2u);
     bvt_free(vt);
 }
 
