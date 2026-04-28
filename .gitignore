@@ -38,6 +38,7 @@ Makefile.in
 .deps/
 .dirstamp
 /build/
+/build-release/
 /_build/
 
 # --- Test outputs ---
