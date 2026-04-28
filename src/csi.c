@@ -459,13 +459,17 @@ void bvt_csi_dispatch(BvtTerm *vt, uint8_t final)
         break;
 
     case 'm':
-        if (has_intermediate(vt, '>')) {
-            /* CSI > Pp ; Pv m — xterm `modifyOtherKeys` and friends
-             * (key-resource set/reset). We provide the same coverage
-             * via the kitty keyboard protocol, so this is a no-op.
-             * Critical: do NOT fall through to sgr_dispatch — that
-             * would interpret "4;2" as SGR underline + faint and
-             * paint Claude Code's hyperlink-tagged words underlined. */
+        if (p->intermediate_count > 0 &&
+            p->intermediates[0] >= 0x3c && p->intermediates[0] <= 0x3f) {
+            /* CSI {<,=,>,?} … m — DEC-private form. Examples:
+             *   `CSI > Pp ; Pv m` — xterm modifyOtherKeys (key-resource
+             *      set/reset). We cover the same ground via the kitty
+             *      keyboard protocol, so this is a no-op.
+             *   `CSI ? Pm m` — crush emits this on startup (probing for
+             *      an xterm extension). Undefined for us; ignore.
+             * Critical: do NOT fall through to sgr_dispatch — interpreting
+             * e.g. `?4` as SGR 4 turns on underline and paints the next
+             * styled run underlined until the program's next reset. */
             break;
         }
         sgr_dispatch(vt);

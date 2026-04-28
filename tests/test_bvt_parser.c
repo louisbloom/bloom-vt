@@ -1021,6 +1021,30 @@ static void test_sgr_underline_style_subparam_only(void)
     bvt_free(vt2);
 }
 
+/* `CSI ? Pm m` is a DEC-private form (crush probes for an xterm extension
+ * with `\e[?4m` on startup). It must NOT be interpreted as SGR — the
+ * parallel sibling test_modify_other_keys_is_not_sgr covers `CSI > 4;2 m`;
+ * this one covers the `?` private marker that previously slipped through. */
+static void test_private_csi_m_is_not_sgr(void)
+{
+    const char *seqs[] = {
+        "\x1b[<4mX",
+        "\x1b[=4mX",
+        "\x1b[>4mX",
+        "\x1b[?4mX",
+    };
+    for (size_t k = 0; k < sizeof(seqs) / sizeof(seqs[0]); ++k) {
+        BvtTerm *vt = make_term(24, 80);
+        feed(vt, seqs[k]);
+        const BvtCell *c = bvt_get_cell(vt, 0, 0);
+        ASSERT_NOT_NULL(c);
+        ASSERT_EQ(c->cp, (uint32_t)'X');
+        /* Default style id 0 — no SGR was applied. */
+        ASSERT_EQ(c->style_id, 0u);
+        bvt_free(vt);
+    }
+}
+
 static void test_sgr_indexed(void)
 {
     BvtTerm *vt = make_term(24, 80);
@@ -1324,6 +1348,7 @@ int main(int argc, char *argv[])
     RUN_TEST(test_sgr_underline_color_itu);
     RUN_TEST(test_sgr_underline_color_curly_orange);
     RUN_TEST(test_sgr_underline_style_subparam_only);
+    RUN_TEST(test_private_csi_m_is_not_sgr);
     RUN_TEST(test_sgr_indexed);
     RUN_TEST(test_reflow_grow);
     RUN_TEST(test_reflow_shrink);
