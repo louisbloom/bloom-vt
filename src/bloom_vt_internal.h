@@ -321,6 +321,14 @@ void bvt_emit_bytes(BvtTerm *vt, const uint8_t *bytes, size_t len);
 /* Altscreen (modes.c). */
 void bvt_set_altscreen(BvtTerm *vt, bool on, bool save_restore_cursor);
 
+/* RIS — full reset (modes.c). Restores the terminal to its initial
+ * state: clears the kitty keyboard stack, every DEC private mode,
+ * DECCKM/DECKPAM/DECOM, charset designations, saved cursor, scroll
+ * region, tab stops, and the grid. Notifies the host via set_mode for
+ * any mode that turned off, so mouse/paste/etc. observers stay in
+ * sync. */
+void bvt_full_reset(BvtTerm *vt);
+
 /* Reflow (reflow.c). When reflow_enabled is true bvt_reflow walks the
  * grid's logical lines (rows linked by WRAPLINE) and re-wraps them at
  * the new geometry, pushing overflow into scrollback. When disabled

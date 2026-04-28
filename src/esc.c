@@ -7,8 +7,6 @@
 
 #include "bloom_vt_internal.h"
 
-#include <string.h>
-
 void bvt_esc_dispatch(BvtTerm *vt, uint8_t final)
 {
     bvt_flush_cluster(vt);
@@ -67,18 +65,7 @@ void bvt_esc_dispatch(BvtTerm *vt, uint8_t final)
             vt->cursor.row--;
         break;
     case 'c': /* RIS — full reset */
-        memset(&vt->cursor, 0, sizeof(vt->cursor));
-        vt->cursor.visible = true;
-        vt->cursor.blink = true;
-        vt->scroll_top = 0;
-        vt->scroll_bottom = vt->rows - 1;
-        vt->in_altscreen = false;
-        if (vt->grid) {
-            memset(vt->grid->cells, 0,
-                   (size_t)vt->rows * vt->cols * sizeof(BvtCell));
-            memset(vt->grid->row_flags, 0, (size_t)vt->rows);
-        }
-        bvt_damage_all(vt);
+        bvt_full_reset(vt);
         break;
     default:
         /* Many ESC dispatches are silently ignored. */

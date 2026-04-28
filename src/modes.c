@@ -68,3 +68,81 @@ void bvt_set_altscreen(BvtTerm *vt, bool on, bool save_restore_cursor)
     if (vt->callbacks.set_mode)
         vt->callbacks.set_mode(BVT_MODE_ALTSCREEN, on, vt->callback_user);
 }
+
+void bvt_full_reset(BvtTerm *vt)
+{
+    if (!vt)
+        return;
+
+    bvt_flush_cluster(vt);
+
+    /* Drop altscreen first so the visible grid is the primary one when
+     * we clear it below. RIS doesn't preserve the saved cursor across
+     * the swap. */
+    if (vt->in_altscreen) {
+        BvtPage *tmp = vt->grid;
+        vt->grid = vt->altgrid;
+        vt->altgrid = tmp;
+        vt->in_altscreen = false;
+    }
+
+    /* Snapshot which modes were on so we can fire set_mode callbacks
+     * for anything that flips off. The host typically uses these to
+     * tear down mouse capture, bracketed-paste handling, etc. */
+    bool prev_modes[32];
+    memcpy(prev_modes, vt->modes, sizeof(prev_modes));
+
+    memset(vt->modes, 0, sizeof(vt->modes));
+    vt->modes[BVT_MODE_CURSOR_VISIBLE] = true;
+    vt->modes[BVT_MODE_CURSOR_BLINK] = true;
+
+    if (vt->callbacks.set_mode) {
+        for (size_t i = 0; i < sizeof(prev_modes) / sizeof(prev_modes[0]); ++i) {
+            if (prev_modes[i] != vt->modes[i])
+                vt->callbacks.set_mode((BvtMode)i, vt->modes[i],
+                                       vt->callback_user);
+        }
+    }
+
+    /* Cursor + saved cursor with default pen. */
+    memset(&vt->cursor, 0, sizeof(vt->cursor));
+    vt->cursor.visible = true;
+    vt->cursor.blink = true;
+    vt->cursor.pen.color_flags =
+        BVT_COLOR_DEFAULT_FG | BVT_COLOR_DEFAULT_BG | BVT_COLOR_DEFAULT_UL;
+    vt->saved_cursor = vt->cursor;
+
+    /* Scroll region back to full screen. */
+    vt->scroll_top = 0;
+    vt->scroll_bottom = vt->rows - 1;
+
+    /* Keyboard / cursor key state. */
+    vt->decckm = false;
+    vt->deckpam = false;
+    vt->decom = false;
+
+    /* The bug this exists to fix: pop every kitty keyboard flag.
+     * Without this, a TUI that pushed `CSI > 1 u` and crashed leaves
+     * Ctrl+letter routed through CSI-u, breaking the shell. */
+    memset(vt->kitty_kb_stack, 0, sizeof(vt->kitty_kb_stack));
+    vt->kitty_kb_depth = 0;
+
+    /* Charsets back to ASCII. */
+    vt->charset[0] = vt->charset[1] = vt->charset[2] = vt->charset[3] = 'B';
+    vt->charset_active = 0;
+
+    /* Tab stops every 8 columns. */
+    if (vt->tabstops) {
+        for (int i = 0; i < vt->cols; ++i)
+            vt->tabstops[i] = (i % 8 == 0) ? 1u : 0u;
+    }
+
+    /* Clear the visible grid. */
+    if (vt->grid) {
+        memset(vt->grid->cells, 0,
+               (size_t)vt->rows * vt->cols * sizeof(BvtCell));
+        memset(vt->grid->row_flags, 0, (size_t)vt->rows);
+    }
+
+    bvt_damage_all(vt);
+}

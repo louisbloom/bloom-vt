@@ -256,6 +256,104 @@ static void test_modify_other_keys_is_not_sgr(void)
     bvt_free(vt);
 }
 
+/* RIS (ESC c) — what `reset(1)` sends — must pop every kitty keyboard
+ * flag. Without this, a TUI that pushed `CSI > 1 u` and crashed before
+ * popping leaves Ctrl+letter routed through CSI-u, breaking the shell:
+ * Ctrl+C arrives as `ESC[99;5u` instead of 0x03, so SIGINT never fires
+ * and `reset` doesn't fix it. The regression this test guards. */
+static void test_ris_clears_kitty_stack(void)
+{
+    BvtTerm *vt = make_term();
+    feed(vt, "\x1b[>1u"); /* push disambiguate */
+    feed(vt, "\x1b[>9u"); /* push disambig + report-all */
+    ASSERT_EQ((int)vt->kitty_kb_depth, 2);
+
+    feed(vt, "\x1b"
+             "c"); /* RIS */
+    ASSERT_EQ((int)vt->kitty_kb_depth, 0);
+    ASSERT_EQ(vt->kitty_kb_stack[0], 0u);
+
+    /* The behavioural assertion: Ctrl+a is back to 0x01, not CSI-u. */
+    clear_output();
+    bvt_send_text(vt, "a", 1, BVT_MOD_CTRL);
+    ASSERT_EQ(g_output_len, (size_t)1);
+    ASSERT_EQ((unsigned char)g_output_buf[0], 0x01u);
+    bvt_free(vt);
+}
+
+/* RIS clears DEC private modes (mouse, bracketed paste, DECCKM, ...).
+ * Without this, an app that left mouse tracking on or arrows in
+ * application mode would persist through `reset`. */
+static void test_ris_clears_modes(void)
+{
+    BvtTerm *vt = make_term();
+    feed(vt, "\x1b[?1000h"); /* mouse btn-event */
+    feed(vt, "\x1b[?2004h"); /* bracketed paste */
+    feed(vt, "\x1b[?1h");    /* DECCKM */
+    ASSERT_TRUE(bvt_get_mode(vt, BVT_MODE_MOUSE_BTN_EVENT));
+    ASSERT_TRUE(bvt_get_mode(vt, BVT_MODE_BRACKETED_PASTE));
+    ASSERT_TRUE(vt->decckm);
+
+    feed(vt, "\x1b"
+             "c"); /* RIS */
+    ASSERT_TRUE(!bvt_get_mode(vt, BVT_MODE_MOUSE_BTN_EVENT));
+    ASSERT_TRUE(!bvt_get_mode(vt, BVT_MODE_BRACKETED_PASTE));
+    ASSERT_TRUE(!vt->decckm);
+
+    /* Cursor visible/blink defaults are restored, not zeroed. */
+    ASSERT_TRUE(bvt_get_mode(vt, BVT_MODE_CURSOR_VISIBLE));
+    ASSERT_TRUE(bvt_get_mode(vt, BVT_MODE_CURSOR_BLINK));
+
+    /* Behavioural: arrow keys are back in normal mode (ESC[A, not ESCOA). */
+    clear_output();
+    bvt_send_key(vt, BVT_KEY_UP, 0);
+    ASSERT_STR_EQ(g_output_buf, "\x1b[A");
+    bvt_free(vt);
+}
+
+/* RIS must fire set_mode for every mode that flips off so the host
+ * tears down mouse capture, paste handling, etc. */
+static int g_set_mode_calls;
+static BvtMode g_set_mode_last_mode;
+static bool g_set_mode_last_on;
+static bool g_set_mode_saw_mouse_off;
+static bool g_set_mode_saw_paste_off;
+static void on_set_mode(BvtMode m, bool on, void *u)
+{
+    (void)u;
+    g_set_mode_calls++;
+    g_set_mode_last_mode = m;
+    g_set_mode_last_on = on;
+    if (m == BVT_MODE_MOUSE_BTN_EVENT && !on)
+        g_set_mode_saw_mouse_off = true;
+    if (m == BVT_MODE_BRACKETED_PASTE && !on)
+        g_set_mode_saw_paste_off = true;
+}
+
+static void test_ris_fires_set_mode_callback(void)
+{
+    BvtTerm *vt = bvt_new(24, 80);
+    BvtCallbacks cb = { 0 };
+    cb.output = on_output;
+    cb.set_mode = on_set_mode;
+    bvt_set_callbacks(vt, &cb, NULL);
+    g_output_len = 0;
+
+    feed(vt, "\x1b[?1000h"); /* mouse on — host gets set_mode(..., true) */
+    feed(vt, "\x1b[?2004h"); /* paste on */
+
+    g_set_mode_calls = 0;
+    g_set_mode_saw_mouse_off = false;
+    g_set_mode_saw_paste_off = false;
+
+    feed(vt, "\x1b"
+             "c"); /* RIS */
+
+    ASSERT_TRUE(g_set_mode_saw_mouse_off);
+    ASSERT_TRUE(g_set_mode_saw_paste_off);
+    bvt_free(vt);
+}
+
 /* Bare CSI u (no intermediate) must still behave as ANSI restore-
  * cursor — not regressing the pre-kitty behaviour everything else
  * already relies on. */
@@ -288,6 +386,9 @@ int main(int argc, char **argv)
     RUN_TEST(test_set_clear_replace);
     RUN_TEST(test_report_all_bare_tab);
     RUN_TEST(test_modify_other_keys_is_not_sgr);
+    RUN_TEST(test_ris_clears_kitty_stack);
+    RUN_TEST(test_ris_clears_modes);
+    RUN_TEST(test_ris_fires_set_mode_callback);
     RUN_TEST(test_bare_csi_u_still_restores);
     TEST_SUMMARY();
 }
